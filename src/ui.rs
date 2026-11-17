@@ -319,13 +319,16 @@ impl App {
         self.paint_header();
     }
 
-    /// Say what just happened, out loud and on the line below the board.
+    /// Say what just happened, out loud and never on screen.
     ///
-    /// The reader can see which cell they touched; telling them it was row 4,
-    /// column 7 is a coordinate they have no use for, on the one line that could
-    /// carry something worth reading. So the line reports the *effect* — the
-    /// digit written, the pencil mark added, the clash — and says nothing at all
-    /// about a plain selection, which changes nothing they cannot see.
+    /// The region is hidden: prose under the board is chatter between the grid
+    /// and the digits, and someone watching the grid can already see the digit
+    /// written, the pencil marks struck out and the underline on a digit that
+    /// repeats. It is kept, and kept out of sight, for the reader who is not
+    /// watching it — and there it reports the *effect* rather than a
+    /// coordinate, because "row 4, column 7" is not something anyone can act
+    /// on. A plain selection still says nothing: it changes nothing they cannot
+    /// hear for themselves.
     fn announce(&mut self, report: Report) {
         set_text(&self.document, "status", &report.words());
     }

@@ -528,6 +528,43 @@ fn no_status_line_is_frozen() {
     }
 }
 
+/// The running commentary is spoken and never drawn.
+///
+/// A sentence under the board — "9 is not the digit for that cell.", "New
+/// puzzle." — is chatter: it pushes the digits down the page, it is read by
+/// everyone who does not need it, and it repeats what the grid itself already
+/// shows, in the digit written, the pencil marks struck out and the underline
+/// on a digit that repeats.
+///
+/// It is hidden rather than deleted: the same words are the only feedback a
+/// reader who cannot see the grid gets, and a live region is the only way to
+/// hand them over without a focus change. So the one thing this test refuses is
+/// a live region that is *visible* again.
+#[test]
+fn the_running_commentary_is_spoken_and_never_drawn() {
+    let page = shell();
+    let status = page
+        .split("<p ")
+        .find(|tag| tag.contains("id=\"status\""))
+        .expect("#status is the live region");
+    assert!(
+        status.contains("role=\"status\"") && status.contains("aria-live"),
+        "the commentary must stay a live region for a reader who cannot see the \
+         grid: {status}"
+    );
+    assert!(
+        status.contains("class=\"visually-hidden\""),
+        "the commentary must be hidden from the page: prose under the board is \
+         chatter, and it says nothing the grid does not already show. Status \
+         element was: {status}"
+    );
+    let css = style();
+    assert!(
+        !css.contains("#status"),
+        "the stylesheet must not style the commentary: it is hidden, not drawn"
+    );
+}
+
 /// The button's visible text is its accessible name. An `aria-label` describing
 /// the same control differently gives a sighted user and a screen-reader user
 /// two different descriptions of one button, which is worse than either.

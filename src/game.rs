@@ -545,13 +545,16 @@ impl Game {
         self.snapshot();
         self.values.set(index, digit);
         self.notes[index] = 0;
-        if correct {
-            // Only a correct digit is worth trusting enough to strike out of
-            // the neighbours' pencil marks. Doing it for a wrong one would erase
-            // the player's real deductions on the strength of a typo.
-            for peer in peers(index) {
-                self.notes[peer] &= !bit(digit);
-            }
+        // Every digit, right or wrong, is struck out of the pencil marks that
+        // share its row, column or box. What is being applied is the player's
+        // own assertion — they have just said this cell holds this digit, so it
+        // cannot also sit in any of its twenty peers — and holding back on the
+        // strength of the answer would be the app second-guessing them where
+        // the grid already shows the mark: it would leave a "9" pencilled in a
+        // row that visibly contains a 9. Undo puts the marks back, so a typo is
+        // one keystroke from harmless.
+        for peer in peers(index) {
+            self.notes[peer] &= !bit(digit);
         }
         // A wrong digit is left on the board, marked wrong, rather than counted
         // or refused: the grid itself is the feedback, and a tally beside it
@@ -759,7 +762,7 @@ pub fn note_digits(mask: Digits) -> impl Iterator<Item = u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::solve;
+    use crate::board::{box_of, solve};
 
     /// A small puzzle with a known answer, used by most tests here.
     const PUZZLE: &str = "53..7....\
@@ -875,6 +878,77 @@ mod tests {
             0,
             "a placed digit is struck out of the neighbours' pencil marks"
         );
+    }
+
+    /// A digit is struck out of its peers' pencil marks whether or not it is
+    /// the answer.
+    ///
+    /// What is being applied is the player's own assertion, not the puzzle's:
+    /// they have just said this cell holds this digit, so it cannot also sit in
+    /// any cell sharing its row, column or box. Checking the answer first left
+    /// a pencilled "9" in a row that visibly contained a 9, which is a board
+    /// contradicting itself.
+    #[test]
+    fn every_placed_digit_strikes_itself_out_of_the_pencil_marks_around_it() {
+        let mut game = game();
+        let index = first_empty(&game);
+        let answer = game.solution.get(index);
+        let wrong = if answer == 9 { 1 } else { answer + 1 };
+
+        // Pencil-mark that digit into every empty peer the frame has room for:
+        // the row, the column and the box all get one.
+        game.toggle_notes();
+        let mut marked: Vec<usize> = Vec::new();
+        for peer in peers(index) {
+            if game.values.is_empty(peer) {
+                game.select(Some(peer));
+                game.enter(wrong);
+                marked.push(peer);
+            }
+        }
+        game.toggle_notes();
+        for (region, key, wanted) in [
+            ("row", row_of as fn(usize) -> usize, row_of(index)),
+            ("column", column_of as fn(usize) -> usize, column_of(index)),
+            ("box", box_of as fn(usize) -> usize, box_of(index)),
+        ] {
+            assert!(
+                marked.iter().any(|&peer| key(peer) == wanted),
+                "the test needs an empty peer in the same {region}"
+            );
+        }
+        assert_eq!(
+            marked
+                .iter()
+                .filter(|&&peer| game.cells()[peer].notes & bit(wrong) != 0)
+                .count(),
+            marked.len(),
+            "every marked peer carries the pencil mark before the placement"
+        );
+
+        // Place it for real: wrong for this cell, and the marks go anyway.
+        game.select(Some(index));
+        let report = game.enter(wrong);
+        assert!(
+            matches!(report, Report::Placed { correct: false, .. }),
+            "{report:?}"
+        );
+        for peer in &marked {
+            assert_eq!(
+                game.cells()[*peer].notes & bit(wrong),
+                0,
+                "a wrong digit is struck out of the pencil marks of its peers too"
+            );
+        }
+
+        // And undo puts them back, exactly as it does for a correct one.
+        game.undo();
+        for peer in &marked {
+            assert!(
+                game.cells()[*peer].notes & bit(wrong) != 0,
+                "undo restores the marks a wrong digit struck out"
+            );
+        }
     }
 
     #[test]
