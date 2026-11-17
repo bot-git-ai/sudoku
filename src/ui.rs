@@ -329,8 +329,16 @@ impl App {
     /// coordinate, because "row 4, column 7" is not something anyone can act
     /// on. A plain selection still says nothing: it changes nothing they cannot
     /// hear for themselves.
+    ///
+    /// What it says about a *placement* is the marking setting's business: see
+    /// [`Report::words`], which would otherwise announce "not the digit for
+    /// that cell" — the answer — to a player who chose to be told only about
+    /// rule breaks.
     fn announce(&mut self, report: Report) {
-        set_text(&self.document, "status", &report.words());
+        // The words follow the marking setting, so the spoken report never
+        // hands over what the visible board has been asked to withhold.
+        let words = report.words(self.game.marking());
+        set_text(&self.document, "status", &words);
     }
 
     /// Persist the game, if it is worth persisting.
