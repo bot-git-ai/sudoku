@@ -175,16 +175,6 @@ impl Marking {
         }
     }
 
-    /// What this setting means, in one sentence, for the announcement.
-    #[must_use]
-    pub const fn sentence(self) -> &'static str {
-        match self {
-            Self::Off => "Nothing will be marked",
-            Self::Rules => "Only a digit that repeats in its row, column or box will be marked",
-            Self::Answer => "A digit that is not the answer's will be marked",
-        }
-    }
-
     /// The setting as stored and parsed, so a saved game survives a change to
     /// the visible wording.
     #[must_use]
@@ -222,13 +212,6 @@ pub enum Report {
         digit: u8,
         /// Whether it is the answer's digit.
         correct: bool,
-        /// Whether the digit now repeats in its row, column or box.
-        ///
-        /// Computed whatever the marking setting is, because the report is a
-        /// record of what happened; whether the player is *told* is
-        /// [`Report::words`]'s decision, and it is the same decision the board
-        /// makes for the cell.
-        repeats: bool,
         /// Whether that was the last of this digit on the board.
         completed_digit: bool,
     },
@@ -260,79 +243,6 @@ pub enum Report {
 }
 
 impl Report {
-    /// What to say about this report, given what the player has asked to be
-    /// told.
-    ///
-    /// One sentence, written here so the screen and the spoken announcement can
-    /// never disagree about what happened. Empty when there is nothing worth
-    /// saying.
-    ///
-    /// `marking` is a parameter rather than something this function looks up
-    /// because the sentence about a placement is exactly the place the answer
-    /// can leak: "4 is not the digit for that cell" is a free correctness check,
-    /// and at [`Marking::Rules`] the board is deliberately not giving one. So
-    /// the rule is the board's own rule — say no more than the setting has
-    /// been asked for.
-    #[must_use]
-    pub fn words(&self, marking: Marking) -> String {
-        match *self {
-            // A selection changes nothing the reader cannot see, so it says
-            // nothing. The cell's name carries its position for anyone who
-            // needs it to navigate.
-            Self::Idle | Self::Selected { .. } => String::new(),
-            // A placement is the one report that can tell the player more than
-            // the grid already shows, so it is the one that follows the marking
-            // setting word for word.
-            Self::Placed {
-                digit,
-                correct,
-                repeats,
-                ..
-            } => match marking {
-                // Nothing is marked, so nothing is said: the digit is on the
-                // grid, and that is the whole of what this setting promises.
-                Marking::Off => String::new(),
-                // The rules are a fact about the grid, not about the answer, and
-                // a repeat is the one thing this setting asked to hear about.
-                // Whether the digit is the answer's stays unsaid, which is the
-                // whole point of the setting.
-                Marking::Rules => {
-                    if repeats {
-                        format!("{digit} repeats in its row, column or box.")
-                    } else {
-                        String::new()
-                    }
-                }
-                // This is the setting that bought the answer's opinion, so it
-                // gets it — along with the repeat, which is still a real thing
-                // to say about the board. A correct digit is silent: the reader
-                // can see the cell fill.
-                Marking::Answer => {
-                    let mut parts: Vec<String> = Vec::with_capacity(2);
-                    if repeats {
-                        parts.push(format!("{digit} repeats in its row, column or box."));
-                    }
-                    if !correct {
-                        parts.push(format!("{digit} is not the digit for that cell."));
-                    }
-                    parts.join(" ")
-                }
-            },
-            Self::Noted { digit, on, .. } => {
-                if on {
-                    format!("Noted {digit}.")
-                } else {
-                    format!("Removed the note {digit}.")
-                }
-            }
-            Self::Erased { .. } => "Cleared.".to_string(),
-            Self::Undone => "Last move undone.".to_string(),
-            Self::Restarted => "Puzzle restarted.".to_string(),
-            Self::MarkingChanged { marking } => format!("{}.", marking.sentence()),
-            Self::Won => "Solved.".to_string(),
-        }
-    }
-
     /// The cell this report is about, if any.
     #[must_use]
     pub const fn cell(&self) -> Option<usize> {
@@ -602,7 +512,6 @@ impl Game {
         for peer in peers(index) {
             self.notes[peer] &= !bit(digit);
         }
-        let repeats = self.values.conflicts()[index];
         // A wrong digit is left on the board, marked wrong, rather than counted
         // or refused: the grid itself is the feedback, and a tally beside it
         // turns a puzzle into a quiz.
@@ -614,7 +523,6 @@ impl Game {
             index,
             digit,
             correct,
-            repeats,
             completed_digit,
         }
     }
@@ -1028,106 +936,6 @@ mod tests {
         assert!(!format!("{readout:?}").to_lowercase().contains("mistake"));
     }
 
-    /// What is said about a placement never gives away more than the marking
-    /// setting was asked for.
-    ///
-    /// "4 is not the digit for that cell" is a free correctness check: it says
-    /// the answer is something else. A player who chose rule-breaks-only has
-    /// asked to be told when a digit repeats, and not one word more, so the
-    /// sentence about a placement has to be chosen by the same rule that
-    /// decides the cell's marking. It used to be written without consulting the
-    /// setting at all, which handed the solution over one cell at a time to
-    /// anyone who placed a digit and listened.
-    #[test]
-    fn what_is_said_about_a_digit_follows_the_marking_setting() {
-        let base = game();
-        let index = first_empty(&base);
-        let answer = base.solution.get(index);
-        // A digit the grid allows here: wrong, but no rule break to flag.
-        let clean = digits_of(base.values.candidates(index))
-            .find(|&digit| digit != answer)
-            .expect("an allowed digit that is not the answer");
-        // And one the row, column or box already holds.
-        let repeating = peers(index)
-            .into_iter()
-            .map(|peer| base.values.get(peer))
-            .find(|&digit| digit != 0 && digit != answer)
-            .expect("a placed peer digit");
-
-        for marking in Marking::ALL {
-            // The clean-but-wrong digit: only the strictest setting names it.
-            let mut game = base.clone();
-            game.set_marking(marking);
-            game.select(Some(index));
-            let Report::Placed { correct, repeats, .. } = game.enter(clean) else {
-                panic!("entering a digit reports a placement");
-            };
-            assert!(!correct);
-            assert!(!repeats, "the test needs a digit that breaks no rule");
-            let words = Report::Placed {
-                index,
-                digit: clean,
-                correct,
-                repeats,
-                completed_digit: false,
-            }
-            .words(marking);
-            assert_eq!(
-                words.contains("not the digit"),
-                marking == Marking::Answer,
-                "at {marking:?} a wrong digit that breaks no rule is announced as {words:?}"
-            );
-
-            // The rule-breaking digit: the rules can prove that one, so it may
-            // be said at rules-only — and it still may not name the answer.
-            let mut game = base.clone();
-            game.set_marking(marking);
-            game.select(Some(index));
-            let Report::Placed {
-                correct, repeats, ..
-            } = game.enter(repeating)
-            else {
-                panic!("entering a digit reports a placement");
-            };
-            assert!(!correct, "the test needs a digit that is not the answer");
-            assert!(repeats, "the test needs a digit that repeats");
-            let words = Report::Placed {
-                index,
-                digit: repeating,
-                correct,
-                repeats,
-                completed_digit: false,
-            }
-            .words(marking);
-            assert_eq!(
-                words.contains("repeats"),
-                marking != Marking::Off,
-                "at {marking:?} a repeat is announced as {words:?}"
-            );
-            assert!(
-                marking == Marking::Answer || !words.contains("not the digit"),
-                "at {marking:?} the announcement gives away the answer: {words:?}"
-            );
-        }
-
-        // A correct digit says nothing at the strictest setting either: the
-        // reader can see the cell fill.
-        for marking in Marking::ALL {
-            assert_eq!(
-                Report::Placed {
-                    index,
-                    digit: answer,
-                    correct: true,
-                    repeats: false,
-                    completed_digit: false,
-                }
-                .words(marking),
-                "",
-                "at {marking:?} a correct digit is silent"
-            );
-        }
-    }
-
     #[test]
     fn a_rule_break_is_flagged_unless_marking_is_off() {
         // A digit the row already holds is a rule break: it needs no answer to
@@ -1184,7 +992,6 @@ mod tests {
         for marking in Marking::ALL {
             assert_eq!(Marking::from_slug(marking.slug()), Some(marking));
             assert!(!marking.label().is_empty());
-            assert!(!marking.sentence().is_empty());
         }
         assert_eq!(Marking::from_slug("clever"), None);
     }
@@ -1472,69 +1279,5 @@ mod tests {
         assert_eq!(clock_text(3599), "59:59");
         assert_eq!(clock_text(3600), "1:00:00");
         assert_eq!(clock_text(7322), "2:02:02");
-    }
-
-    #[test]
-    fn reports_say_what_happened_without_naming_how_the_app_is_built() {
-        let index = 10;
-        // A correct digit is silent: the reader can see the cell fill, and a
-        // sentence per keystroke is noise on the one line that could be useful.
-        assert_eq!(
-            Report::Placed {
-                index,
-                digit: 4,
-                correct: true,
-                repeats: false,
-                completed_digit: false,
-            }
-            .words(Marking::Answer),
-            ""
-        );
-        // A selection is silent for the same reason.
-        assert_eq!(Report::Selected { index }.words(Marking::Answer), "");
-        // A wrong digit says so — but only where the player asked to be told,
-        // without a coordinate.
-        let wrong = Report::Placed {
-            index,
-            digit: 4,
-            correct: false,
-            repeats: false,
-            completed_digit: false,
-        }
-        .words(Marking::Answer);
-        assert_eq!(wrong, "4 is not the digit for that cell.");
-        assert!(!wrong.to_lowercase().contains("row"));
-
-        for report in [
-            Report::Undone,
-            Report::Restarted,
-            Report::Won,
-            Report::Erased { index },
-            Report::Noted {
-                index,
-                digit: 4,
-                on: true,
-            },
-            Report::Noted {
-                index,
-                digit: 4,
-                on: false,
-            },
-        ] {
-            let words = report.words(Marking::Answer).to_lowercase();
-            assert!(!words.is_empty(), "{report:?} has nothing to say");
-            // No coordinates anywhere: "row 4, column 7" is a fact about the
-            // grid's indexing, not about what the reader did.
-            assert!(
-                !words.contains("row") && !words.contains("column"),
-                "{report:?} reports a coordinate: {words}"
-            );
-            for forbidden in ["rust", "wasm", "webassembly", "javascript", "bindgen"] {
-                assert!(
-                    !words.contains(forbidden),
-                    "{report:?} names the implementation"
-                );
-            }
-        }
     }
 }

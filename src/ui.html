@@ -31,9 +31,8 @@
   <span id="stamp">Easy</span>
 </header>
 
-<!-- The three facts about this sitting. `role="status"` on the clock alone would
-     announce every second, which is unbearable with a screen reader, so the
-     live region is #status below and these are plain text. -->
+<!-- The clock, as plain text: a live region around it would announce every
+     second, which is unbearable with a screen reader. -->
 <div class="facts">
   <span id="clock">00:00</span>
 </div>
@@ -113,14 +112,14 @@
   </div>
 </div>
 
-<!-- What just happened, in words, for anyone who is not watching the grid.
-     It is spoken and never drawn: a line of prose under the board is chatter
-     between the grid and the digits, and the grid already shows what changed —
-     the digit written, the pencil marks struck out, the underline on a digit
-     that breaks a rule. Empty until there is something to say, because a live
-     region that ships with text in it announces that text on load, which is
-     noise. -->
-<p id="status" class="visually-hidden" role="status" aria-live="polite"></p>
+<!-- Nothing between the grid and the digits. There used to be a line here
+     reporting the last move in words — "9 is not the digit for that cell",
+     "New puzzle." — first drawn and then only spoken. Both were chatter: the
+     grid already shows the digit written, the pencil marks struck out of its
+     peers, and the underline on a digit that repeats, and a sentence repeating
+     that pushed the digits down the page for everyone who did not need it.
+     The one thing that stays down here is the failure box, which only ever
+     appears when the app could not start. -->
 <p id="error" role="alert" hidden></p>
 
 <noscript>This sudoku needs JavaScript enabled. Turn it on and reload to play.</noscript>
